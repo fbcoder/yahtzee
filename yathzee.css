@@ -1,0 +1,40 @@
+div#gameContainer{
+    width:420px;
+    background: #cccccc;
+    padding: 5px;
+    overflow: auto;    
+    }
+    
+div#gameTitle{
+    text-align: center;
+    background: #dddddd;
+    margin-bottom: 10px;
+    }
+
+div#diceControlContainer {
+    float: left;
+    margin-right: 10px;    
+    }
+
+div#scoreCardContainer {
+    float: left;
+    background: #eeeeee;
+    border-right: 2px black solid;
+    border-bottom: 2px black solid;
+    padding: 5px;
+}
+
+div#scoreCardHeader {
+    padding: 2px;
+    text-align: center;
+    font-weight: bold;
+}
+    
+table#testTable {    
+    border-collapse: collapse;    
+}
+
+table#testTable td{
+    border: 1px black solid;
+    padding: 2px;
+}

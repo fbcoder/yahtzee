@@ -1,0 +1,722 @@
+<html>
+    <head>
+        <link href="yathzee.css" rel="stylesheet" type="text/css">
+        <script src="imagehelper.js"></script>
+        <script src="imageloader.js"></script>
+        <script type="text/javascript">
+            // variables for the canvas to draw on
+            var thisCanvas;
+            var thisContext;            
+            
+            // more **brrr** 'globals'
+            var imageFileNames = new Array();
+            var images;
+            var dice = new Array();
+            var setScore = false;            
+            var diceRolls = 0;
+            var frequency = new Array(6);
+            var sumOfDice = 0;
+            var filledInScores = 0;
+            
+            var imageFiles = {
+                    die: "",
+                    pencil: "",
+                    delete: "",
+                    title: ""
+            };
+            
+            function soundClip(file){
+                this.file = file;
+                this.play = function(){
+                    audioObj = new Audio(this.file);
+                    audioObj.play();
+                }
+            }
+            
+            var clickSound = new soundClip("clicksound.wav");
+                        
+            // dimensions
+            function dieRect(x,y,margin,dieSize,diceX,diceY){
+                this.x = x;
+                this.y = y;
+                this.w = (dieSize + margin) * diceX;
+                this.h = (dieSize + margin) * diceY;
+                this.margin = margin;
+                this.dieSize = dieSize;
+                this.slotSize = this.margin + this.dieSize;
+                this.drawBorder = function(context){
+                    context.beginPath();
+                    context.rect(this.x-2,this.y-2,this.w+4,this.h+4);
+                    context.strokeStyle = "rgb(255,255,0)";
+                    context.stroke();                    
+                }
+                this.isInside = function(x,y){
+                    if(x >= this.x){
+                        if(x <= this.x + this.w){
+                            if(y >= this.y){
+                                if(y <= this.y + this.h){
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    return false;                                    
+                }
+                this.getSlot = function(x,y){
+                    if(this.isInside(x,y)){                            
+                        var relX = x - this.x
+                        var relY = y - this.y
+                        var slotx = Math.floor(relX / this.slotSize);
+                        var sloty = Math.floor(relY / this.slotSize);
+                        var slot = (sloty * 5 + slotx);                        
+                        return slot;
+                    }
+                    return -1;
+                }
+                this.getDicePosition = function(slotx,sloty){
+                    return {
+                        x: this.x + (slotx * this.slotSize),
+                        y: this.y + (sloty * this.slotSize)
+                    };
+                }
+            };
+            
+            var diceRollArea = new dieRect(10,10,2,32,5,5);
+            var diceHoldingArea = new dieRect(diceRollArea.x,diceRollArea.y+diceRollArea.h+10,2,32,5,1);
+    
+            function enableButton(){
+                document.getElementById('rollButton').disabled=false;
+            }
+            
+            function disableButton(){
+                var button = document.getElementById('rollButton');
+                button.disabled=true
+            }
+            
+            function setButtonToNewTurn(id){
+                setScore = true;
+                f = "confirmScore(" + id + ")";
+                button = document.getElementById('rollButton');
+                button.setAttribute('value',"Confirm Score");
+                button.setAttribute('onclick',f);
+            }
+            
+            function setButtonToRoll(){
+                setScore = false;
+                button = document.getElementById('rollButton');
+                button.setAttribute('value',"ROLL");
+                button.setAttribute('onclick',"rollDice()");
+                button.disabled=false;
+                //alert(button.disabled);
+            }                        
+            
+            var GameState = {
+                new_game:0,
+                can_end_turn:1                
+            };
+            
+            function writeToHtmlField(fieldId,newContent){
+                document.getElementById(fieldId).innerHTML = newContent;
+            }
+            
+            function changeImageProperties(imgId,newSource,newOnClick){
+                imgElement = document.getElementById(imgId);
+                imgElement.setAttribute('src',newSource);
+                imgElement.setAttribute('onclick',newOnClick); 
+            }
+            
+            function getScore(scoreField){                
+                var score = -100;
+                if(scoreField <= Field.six){                
+                    score = ((frequency[scoreField] - 3) * (scoreField + 1));
+                }else if(scoreField == Field.three_of_kind){
+                    for(i in frequency){
+                        if(frequency[i] == 3){
+                            score = sumOfDice;
+                        }
+                    }
+                }else if(scoreField == Field.four_of_kind){
+                    for(i in frequency){
+                        if(frequency[i] == 4){
+                           score = sumOfDice;
+                        }
+                    }
+                }else if(scoreField == Field.full_house){
+                    var two = false;
+                    var three = false;
+                    for(i in frequency){
+                        if(frequency[i] == 2){                            
+                            two = true;
+                        }
+                        if(frequency[i] == 3){
+                            three = true;
+                        }
+                    }
+                    if(two && three){
+                        score = 25;
+                    }
+                }else if(scoreField == Field.small_straight){
+                    if(frequency[2] >= 1 && frequency[3] >= 1){
+                        if(frequency[1] >= 1){
+                            if(frequency[4] >=1 || frequency[0] >= 1){
+                                score = 30;
+                            }
+                        }
+                        if(frequency[4] >= 1){
+                            if(frequency[5] >=1 || frequency[1] >= 1){
+                                score = 30;
+                            }
+                        }
+                    }
+                }else if(scoreField == Field.large_straight){
+                    if(frequency[1] >= 1 && frequency[2] >= 1 && frequency[3] >= 1 && frequency[4] >= 1){
+                        if(frequency[0] >=1 || frequency[5] >=1){
+                            score = 40;
+                        }
+                    }
+                }else if(scoreField == Field.yahtzee){
+                    for(i in frequency){
+                        if(frequency[i] == 5){
+                           score = 50;
+                        }
+                    }               
+                }else if(scoreField == Field.chance){
+                    return sumOfDice;
+                }else{
+                    alert("Unkown scoreField");
+                    return -100;
+                }
+                return score;
+            }
+            
+            function scoreCardField(id,text,writable,deleteable){
+                this.id = id;
+                this.scoreId = "score"+this.id;
+                this.writeImageId = "writeImage"+this.id;
+                this.deleteImageId = "deleteImage"+this.id;
+                this.text = text;
+                this.writable = writable;
+                this.deleteable = deleteable;
+                this.score = -1;
+                this.written = false;
+                this.deleted = false;
+                this.writeHTML = function(){
+                    var imageCode1 = "";
+                    var imageCode2 = "";
+                    if(this.writable){
+                        var f = "writeScore(" + this.id + ")";
+                        imageCode1 = "<img id='" + this.writeImageId +  "'  src='Pencil_my.png' onClick='" + f + "'>";
+                    }
+                    if(this.deleteable){
+                        var f = "strikeScore(" + this.id + ")";
+                        imageCode2 = "<img id='" + this.deleteImageId + "' src='Delete_my.png' onClick='" + f + "'>";
+                    }
+                    var editColumn = "<td>"+ imageCode1 + imageCode2 + "</td>";
+                    var textColumn = "<td>" + this.text +"</td>";
+                    var scoreColumn = "<td id='" + this.scoreId + "'></td>";
+                    var outputHTML = "<tr>" + editColumn + textColumn + scoreColumn + "</tr>";
+                    return outputHTML;
+                }
+                this.calculateScore = function(){
+                    if(!this.written){
+                        if(!this.deleted){
+                            this.score = getScore(this.id);
+                            if(this.score != -100){
+                                this.written = true;
+                                writeToHtmlField(this.scoreId,""+this.score);
+                                f = "undo(" + this.id + ")";
+                                changeImageProperties(this.writeImageId,"undo.png",f);
+                                enableButton();
+                                setButtonToNewTurn(this.id);
+                            }else{
+                                alert("That score doesn't match the dice.");
+                            }
+                        }else{
+                            alert("You have already given up this field.");
+                        }
+                    }else{
+                        alert("Already written down a score here.");
+                    }
+                }
+                this.strikeScore = function(){
+                    if(!this.deleted){
+                        if(!this.written){
+                            this.deleted = true;
+                            this.score = 0;                            
+                            writeToHtmlField(this.scoreId,"X");
+                            f = "undo(" + this.id + ")";
+                            changeImageProperties(this.deleteImageId,"undo.png",f);
+                            enableButton();
+                            setButtonToNewTurn(this.id);
+                        }else{
+                            alert("You can't strike this field, already filled in a score.");
+                        }
+                    }else{
+                        alert("You have already given up this field.");
+                    }                    
+                }
+                this.undo = function(){    
+                    if(this.written){
+                        this.written=false;
+                        this.score=-1;
+                        f = "writeScore(" + this.id + ")";
+                        changeImageProperties(this.writeImageId,"Pencil_my.png",f);
+                        this.undoAction();
+                    }else if(this.deleted){
+                        this.deleted=false;
+                        this.score=-1;
+                        f = "strikeScore(" + this.id + ")";
+                        changeImageProperties(this.deleteImageId,"Delete_my.png",f);
+                        this.undoAction();                        
+                    }else{
+                        //zou niet mogen!
+                    }                    
+                }
+                this.resetIcons = function(){
+                    if(this.written){
+                        f = "writeScore(" + this.id + ")";
+                        changeImageProperties(this.writeImageId,"Pencil_my.png",f);
+                    }else if(this.deleted){                    
+                        f = "strikeScore(" + this.id + ")";
+                        changeImageProperties(this.deleteImageId,"Delete_my.png",f);
+                    }
+                }
+                this.undoAction = function(){
+                    writeToHtmlField(this.scoreId,"");                    
+                    setScore = false;
+                    if(diceRolls < 3){
+                        setButtonToRoll();
+                    }else{
+                        disableButton();
+                    }    
+                }
+                this.setScoreManually = function(score){
+                    this.score = score;
+                    writeToHtmlField(this.scoreId,""+this.score);
+                }
+            }
+            
+            function finalizeScoreCard(){
+                var noBonus = 63;
+                for(i=0;i<6;i++){
+                    noBonus += scoreCard[i].score;
+                }
+                var bonus = 0;
+                if(noBonus >= 63){
+                    bonus = 35;
+                }
+                var upperTotal = noBonus + bonus;
+                scoreCard[Field.total_nobonus].setScoreManually(noBonus); 
+                scoreCard[Field.bonus].setScoreManually(bonus);
+                scoreCard[Field.total_upper1].setScoreManually(upperTotal);
+                scoreCard[Field.total_upper2].setScoreManually(upperTotal);
+                var lowerTotal = 0;
+                for(i=Field.three_of_kind;i<=Field.chance;i++){
+                    lowerTotal += scoreCard[i].score;
+                }
+                scoreCard[Field.total_lower].setScoreManually(lowerTotal);
+                var totalGeneral = lowerTotal + upperTotal;
+                scoreCard[Field.total_general].setScoreManually(totalGeneral);
+                alert("Your final score is: "+totalGeneral+".");
+            }
+            
+            var Field = {
+                one:0,
+                two:1,
+                three:2,
+                four:3,
+                five:4,
+                six:5,
+                total_nobonus:6,
+                bonus:7,
+                total_upper1:8,
+                three_of_kind:9,
+                four_of_kind:10,
+                full_house:11,
+                small_straight:12,
+                large_straight:13,
+                yahtzee:14,
+                chance:15,                
+                total_upper2:16,
+                total_lower:17,
+                total_general:18
+            };
+            
+            var scoreCard = [
+                new scoreCardField(Field.one,"Aces",true,false),
+                new scoreCardField(Field.two,"Twos",true,false),
+                new scoreCardField(Field.three,"Threes",true,false),
+                new scoreCardField(Field.four,"Foures",true,false),
+                new scoreCardField(Field.five,"Fives",true,false),
+                new scoreCardField(Field.six,"Sixes",true,false),
+                new scoreCardField(Field.total_nobunus,"Total",false,false),
+                new scoreCardField(Field.bonus,"Bonus",false,false),
+                new scoreCardField(Field.total_upper1,"Upper total",false,false),
+                new scoreCardField(Field.three_of_kind,"3 of a kind",true,true),
+                new scoreCardField(Field.four_of_kind,"4 of a kind",true,true),
+                new scoreCardField(Field.full_house,"Full House",true,true),
+                new scoreCardField(Field.small_straight,"Small Straight",true,true),
+                new scoreCardField(Field.large_straight,"Large Straight",true,true),
+                new scoreCardField(Field.yahtzee,"Yahtzee!",true,true),
+                new scoreCardField(Field.chance,"Chance",true,false),
+                new scoreCardField(Field.total_lower,"Lower total",false,false),
+                new scoreCardField(Field.total_upper2,"Upper total",false,false),
+                new scoreCardField(Field.total_general,"Grand Total",false,false)
+            ];
+            
+            //handling the dice
+            var holdingSlots = [false,false,false,false,false];
+            var freeSlots = 5;
+            
+            function getFreeSlot(){                
+                for(i in holdingSlots){
+                    if(!holdingSlots[i]){
+                        return i;
+                    }
+                }
+                return -1;
+            }
+            
+            function diceObject(){
+                this.face = -1;
+                this.heldBack = false;
+                this.slot = {
+                    x: -1,
+                    y: -1
+                };
+                this.holdingSlot = -1;
+                this.canvasPos = {
+                    x: -1,
+                    y: -1
+                };
+                this.reset = function(){
+                    this.face = -1;
+                    this.heldBack = false;
+                    this.slot.x = -1;
+                    this.slot.y = -1;
+                    this.holdingSlot = -1;
+                }
+                this.isThrown = function(face,x,y){
+                    this.face = face;
+                    this.slot.x = x;
+                    this.slot.y = y;       
+                    this.canvasPos = diceRollArea.getDicePosition(this.slot.x,this.slot.y);
+                    this.drawOnCanvas();
+                }                
+                this.onSlot = function(slot){
+                    if((this.slot.y * 5 + this.slot.x) == slot){
+                        return true;
+                    }
+                    return false;
+                }
+                this.onHoldingSlot = function(slot){
+                    if(this.heldBack){
+                        if(this.holdingSlot == slot){
+                            return true;
+                        }
+                    }
+                    return false;
+                }                
+                this.moveToHoldingSlot = function(){                    
+                    if(diceRolls < 3){
+                        clickSound.play();
+                        this.holdingSlot = getFreeSlot();
+                        if(this.holdingSlot > -1){
+                            this.heldBack = true;
+                            holdingSlots[this.holdingSlot] = true;
+                            this.eraseFromCanvas();
+                            this.canvasPos = diceHoldingArea.getDicePosition(this.holdingSlot,0);
+                            this.drawOnCanvas();
+                            freeSlots -= 1;
+                            if(freeSlots == 0){
+                                disableButton();
+                            }
+                        }else{
+                            // something is wrong, there should be a free slot for each die on the 'table'.
+                        }
+                    }else{
+                        alert("Moving dice to the holding area makes no sense in this round.");
+                    }
+                }
+                this.moveToRollArea = function(){
+                    holdingSlots[this.holdingSlot] = false;
+                    if(freeSlots == 0){
+                        enableButton();
+                    }
+                    freeSlots += 1;
+                    this.heldBack = false;
+                    this.eraseFromCanvas();
+                    this.canvasPos = diceRollArea.getDicePosition(this.slot.x,this.slot.y);
+                    this.drawOnCanvas();
+                }
+                this.eraseFromCanvas = function(){
+                    thisContext.fillStyle="rgb(0,102,0)";
+                    thisContext.fillRect(this.canvasPos.x,this.canvasPos.y,34,34);
+                }
+                this.drawOnCanvas = function(){
+                    thisContext.drawImage(diceImages[this.face - 1].canvas,this.canvasPos.x,this.canvasPos.y);
+                }
+            }
+            
+            function clearTableCanvas(){
+                thisContext.fillStyle="rgb(0,102,0)";
+                thisContext.fillRect(0,0,thisCanvas.width,thisCanvas.height);
+                diceRollArea.drawBorder(thisContext);
+                diceHoldingArea.drawBorder(thisContext);
+                for(i in dice){
+                    if(dice[i].heldBack){
+                        dice[i].drawOnCanvas();
+                    }
+                }
+            }
+            
+            // called when images have finished loading                        
+            function imagesAreLoaded(imgArray){
+                images = imgArray;                
+                //alert("loaded images!");
+                //thisContext.drawImage(images[0],0,0);                
+                drawDice();
+                clearTableCanvas();
+                for(i=0;i<5;i++){
+                    dice.push(new diceObject);
+                }
+                startNewTurn();
+            }
+            
+            var table = [[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]];
+            
+            function clearTable(){                
+                clearTableCanvas();
+                for(i=0;i<5;i++){
+                    for(j=0;j<5;j++){
+                        table[i][j] = 0;
+                    }
+                }
+            }
+            
+            function slotIsOccupied(slot){
+                if(table[Math.floor(slot / 5)][slot % 5] == 1){
+                    return true;
+                }
+                return false;
+            }
+                        
+            function rollDice(){
+                clearTable();
+                sumOfDice = 0;
+                for(i=0;i<6;i++){
+                    frequency[i] = 0;
+                }
+                for(i in dice){
+                    if(!dice[i].heldBack){
+                        dieFace = Math.floor(Math.random() * 6) + 1;
+                        var occupied = true;
+                        var slot = 0;
+                        while(occupied){
+                            slot = Math.floor(Math.random() * 25);
+                            occupied = slotIsOccupied(slot);
+                        }
+                        x = slot % 5;
+                        y = Math.floor(slot / 5);
+                        table[y][x] = 1;
+                        dice[i].isThrown(dieFace,x,y);                     
+                    }                    
+                    frequency[dice[i].face-1] += 1;
+                    sumOfDice += dice[i].face;
+                }
+                diceRolls++;
+                if(diceRolls==3){
+                    disableButton();
+                }
+            }
+            
+            function startNewTurn(){
+                freeSlots=5;
+                diceRolls=0;
+                setButtonToRoll();
+                for(i in dice){
+                    dice[i].reset();
+                }
+                for(i in holdingSlots){
+                    holdingSlots[i] = false;
+                }
+                clearTableCanvas();
+            }
+            
+            function confirmScore(x){
+                filledInScores++;
+                scoreCard[x].resetIcons();
+                if(filledInScores < 13){
+                    startNewTurn();
+                }else{
+                    finalizeScoreCard();
+                }
+            }
+            
+            // draw the pips to put on the dice
+            var diePips = new Array(6);
+            function drawPips(){
+                var fillPatern = new Array();
+                fillPatern[0] = [[0,0,0],[0,1,0],[0,0,0]];
+                fillPatern[1] = [[0,0,1],[0,0,0],[1,0,0]];
+                fillPatern[2] = [[0,0,1],[0,1,0],[1,0,0]];
+                fillPatern[3] = [[1,0,1],[0,0,0],[1,0,1]];
+                fillPatern[4] = [[1,0,1],[0,1,0],[1,0,1]];
+                fillPatern[5] = [[1,1,1],[0,0,0],[1,1,1]];
+                
+                for(i=0;i<6;i++){
+                    pips = new subCanvas(20,20);
+                    for(j=0;j<3;j++){
+                        for(h=0;h<3;h++){
+                            if(fillPatern[i][j][h] == 1){
+                                x=h*8
+                                y=j*8
+                                pips.context.fillStyle="black";
+                                pips.context.fillRect(x,y,4,4);
+                            }
+                        }
+                    }
+                    diePips[i] = pips;
+                }
+            }
+            
+            // draw the dice
+            var diceImages = new Array(6);
+            function drawDice(){
+                drawPips();
+                for(i=0;i<6;i++){                    
+                    diceImages[i] = new tileFromImage(images[0]);
+                    diceImages[i].context.drawImage(diePips[i].canvas,6,6);
+                }
+            }
+            
+            function putDieOnCanvas(pips,x,y){
+                thisContext.drawImage(diceImages[pips - 1].canvas,x,y);
+            }
+                        
+            // fill array with file names.
+            function feedImageFilenames(){                
+                imageFileNames.push("dice.png");
+            }
+                        
+            function writeScore(x){
+                if(diceRolls > 0){
+                    if(!setScore){
+                        scoreCard[x].calculateScore();
+                    }
+                }else{
+                    alert('Throw the dice first.');
+                }
+            }
+            
+            function strikeScore(x){
+                if(diceRolls > 0){
+                    if(!setScore){                
+                        scoreCard[x].strikeScore();
+                    }
+                }else{
+                    alert('Throw the dice first.');
+                }
+            }
+            
+            function undo(x){
+                scoreCard[x].undo();                
+            }
+             
+            function fillTable(){                
+                var tableContent = "";
+                for(i in scoreCard){                    
+                    tableContent += scoreCard[i].writeHTML();
+                }
+                document.getElementById('testTable').innerHTML = tableContent;
+            }
+            
+            function selectDieToRelease(x,y){
+                var slot = diceHoldingArea.getSlot(x,y);
+                for(i=0;i<5;i++){
+                    if(dice[i].onHoldingSlot(slot)){
+                        dice[i].moveToRollArea();
+                        break;
+                    }
+                }  
+            }
+            
+            function selectDieToHold(x,y){
+                var slot = diceRollArea.getSlot(x,y);
+                for(i=0;i<5;i++){
+                    if(dice[i].onSlot(slot)){                        
+                        if(!dice[i].heldBack){
+                            //alert(i);
+                            dice[i].moveToHoldingSlot();                       
+                            break;
+                        }
+                    }
+                }                
+            }
+                        
+            function handleCanvasClick(x,y){
+                if(diceRollArea.isInside(x,y)){
+                    selectDieToHold(x,y);
+                }else if(diceHoldingArea.isInside(x,y)){
+                    selectDieToRelease(x,y);
+                }
+            }
+            
+            function getMousePosition(evt){
+                var obj = thisCanvas;
+                var top = 0;
+                var left = 0;
+                while(obj && obj.tagName != 'BODY'){
+                    top += obj.offsetTop;
+                    left += obj.offsetLeft;                    
+                    obj = obj.offsetParent;
+                }
+                
+                var mouseX = evt.clientX - left + window.pageXOffset; 
+                var mouseY = evt.clientY - top + window.pageYOffset;
+                return {
+                  x: mouseX,
+                  y: mouseY
+                };
+            }
+            
+            function mouseClicked(evt){
+                pos = getMousePosition(evt);
+                //alert(""+pos.x+","+pos.y);
+                handleCanvasClick(pos.x,pos.y);
+            }
+            
+            // called when document window is loaded.
+            window.onload = function(){
+                thisCanvas = document.getElementById('myCanvas');
+                thisContext = thisCanvas.getContext('2d');
+                thisCanvas.addEventListener('click',mouseClicked,false);
+                feedImageFilenames();
+                loadImages(imageFileNames,imagesAreLoaded);
+                fillTable();
+            }
+        </script> 
+    </head>
+    <body>
+        <div id="gameContainer">
+            <div id="gameTitle">
+                <img src="title.png">
+            </div>
+            <div id="diceControlContainer">
+                <form>
+                    <input id="rollButton" type="button" value="ROLL" onClick="rollDice()"/>
+                </form>
+                <canvas id="myCanvas" height="300" width="200">
+                    <strong>Your browsere does not seem to support the html5-canvas.</strong>
+                </canvas>                
+            </div>
+            <div id="scoreCardContainer">
+                <div id="scoreCardHeader">
+                    Score
+                </div>
+                <table id="testTable" border="0">
+                </table>            
+            </div>
+        </div>
+    </body>
+</html>
